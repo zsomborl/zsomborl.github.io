@@ -38,36 +38,50 @@
             box-shadow: 0 0 15px rgba(255,255,255,0.3);
         }
 
-        /* Preview Window - Smaller, Data Only */
+        /* Preview Window - Video + Data Overlay */
         #preview-card {
             position: absolute; top: 20px; right: 20px;
-            width: 160px;
+            width: 200px;
             background: rgba(10, 10, 10, 0.8);
             backdrop-filter: blur(16px);
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.15);
-            padding: 12px;
+            overflow: hidden;
             display: none; z-index: 90;
+        }
+
+        #preview-canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+            transform: scaleX(-1); /* Mirror the video */
+        }
+
+        #tracking-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.95), rgba(0,0,0,0.7));
+            padding: 8px;
             font-family: 'Courier New', monospace;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             color: #00d2ff;
         }
 
-        #preview-card .data-row {
+        #tracking-overlay .data-row {
             display: flex;
             justify-content: space-between;
-            margin: 6px 0;
-            padding: 4px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin: 3px 0;
         }
 
-        #preview-card .label {
+        #tracking-overlay .label {
             color: rgba(255,255,255,0.5);
             text-transform: uppercase;
             font-size: 0.6rem;
         }
 
-        #preview-card .value {
+        #tracking-overlay .value {
             color: #00d2ff;
             font-weight: bold;
         }
@@ -75,9 +89,9 @@
         #hands-status {
             text-align: center;
             color: #00ff88;
-            font-size: 0.65rem;
-            margin-top: 8px;
-            padding-top: 8px;
+            font-size: 0.6rem;
+            margin-top: 5px;
+            padding-top: 5px;
             border-top: 1px solid rgba(255,255,255,0.2);
         }
 
@@ -116,7 +130,7 @@
 
     <div id="start-screen">
         <h1 style="color:white; font-weight:200; letter-spacing:4px; margin-bottom:10px;">PARTICLE CORE</h1>
-        <p style="color:rgba(255,255,255,0.4); font-size:0.8rem; margin-bottom:40px;">Dual-Hand 6DoF Tracking</p>
+        <p style="color:rgba(255,255,255,0.4); font-size:0.8rem; margin-bottom:40px;">Hand Tracking Enabled</p>
         <button id="start-btn">ENGAGE SYSTEM</button>
         <div id="calibration-status">
             <div>📹 Camera Active</div>
@@ -126,39 +140,35 @@
     </div>
 
     <div id="preview-card">
-        <div style="text-align:center; margin-bottom:10px; color:#fff; font-weight:bold; font-size:0.75rem;">TRACKING DATA</div>
-        
-        <div class="data-row">
-            <span class="label">Hands</span>
-            <span class="value" id="hands-count">0</span>
+        <canvas id="preview-canvas"></canvas>
+        <div id="tracking-overlay">
+            <div class="data-row">
+                <span class="label">Hands</span>
+                <span class="value" id="hands-count">0</span>
+            </div>
+            
+            <div class="data-row">
+                <span class="label">Pos X</span>
+                <span class="value" id="pos-x">0.00</span>
+            </div>
+            
+            <div class="data-row">
+                <span class="label">Pos Y</span>
+                <span class="value" id="pos-y">0.00</span>
+            </div>
+            
+            <div class="data-row">
+                <span class="label">Pos Z</span>
+                <span class="value" id="pos-z">0.00</span>
+            </div>
+            
+            <div class="data-row">
+                <span class="label">Grip</span>
+                <span class="value" id="ten-val">0%</span>
+            </div>
+            
+            <div id="hands-status">Ready</div>
         </div>
-        
-        <div class="data-row">
-            <span class="label">Position X</span>
-            <span class="value" id="pos-x">0.00</span>
-        </div>
-        
-        <div class="data-row">
-            <span class="label">Position Y</span>
-            <span class="value" id="pos-y">0.00</span>
-        </div>
-        
-        <div class="data-row">
-            <span class="label">Position Z</span>
-            <span class="value" id="pos-z">0.00</span>
-        </div>
-        
-        <div class="data-row">
-            <span class="label">Rotation</span>
-            <span class="value" id="rot-val">0°</span>
-        </div>
-        
-        <div class="data-row">
-            <span class="label">Grip</span>
-            <span class="value" id="ten-val">0%</span>
-        </div>
-        
-        <div id="hands-status">Ready</div>
     </div>
 
     <div id="ui-layer">
@@ -387,22 +397,22 @@
 
         // --- HAND TRACKING ---
         const videoElement = document.getElementById('input-video');
+        const previewCanvas = document.getElementById('preview-canvas');
+        const previewCtx = previewCanvas.getContext('2d');
 
         function calculateHandDepth(landmarks) {
-            // Estimate depth based on hand size (distance between wrist and middle finger tip)
             const wrist = landmarks[0];
             const middleTip = landmarks[12];
             const indexTip = landmarks[8];
             const pinkyTip = landmarks[20];
             
-            // Calculate hand span
             const span = Math.sqrt(
                 Math.pow(indexTip.x - pinkyTip.x, 2) + 
                 Math.pow(indexTip.y - pinkyTip.y, 2)
             );
             
-            // Larger span = closer to camera (map 0.1-0.4 to depth range)
-            return (span - 0.15) / 0.25; // Normalized to roughly -1 to 1
+            // Exaggerated depth - larger multiplier for more dramatic effect
+            return ((span - 0.15) / 0.25) * 2.5;
         }
 
         function calculateHandRotation(landmarks) {
@@ -410,22 +420,16 @@
             const middleBase = landmarks[9];
             const indexBase = landmarks[5];
             
-            // Yaw (left/right rotation)
             const yaw = Math.atan2(middleBase.x - wrist.x, middleBase.y - wrist.y);
-            
-            // Roll (twist)
             const roll = Math.atan2(indexBase.x - middleBase.x, indexBase.y - middleBase.y);
-            
-            // Pitch (up/down tilt) - using Z coordinates
-            const pitch = (middleBase.z - wrist.z) * 5; // Scale up for visibility
+            const pitch = (middleBase.z - wrist.z) * 8; // Increased from 5 to 8
             
             return { pitch, yaw, roll };
         }
 
         function calculateGrip(landmarks) {
-            // Calculate average distance from fingertips to palm
             const palm = landmarks[9];
-            const tips = [4, 8, 12, 16, 20]; // Thumb, Index, Middle, Ring, Pinky
+            const tips = [4, 8, 12, 16, 20];
             
             let totalDist = 0;
             tips.forEach(tipIdx => {
@@ -437,19 +441,31 @@
             });
             
             const avgDist = totalDist / tips.length;
-            // Map distance to grip (0.05 = closed, 0.25 = open)
             const grip = 1 - Math.max(0, Math.min(1, (avgDist - 0.05) / 0.2));
             return grip;
         }
 
         function onResults(results) {
+            // Draw video feed to preview canvas
+            previewCanvas.width = videoElement.videoWidth;
+            previewCanvas.height = videoElement.videoHeight;
+            previewCtx.save();
+            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            previewCtx.drawImage(results.image, 0, 0, previewCanvas.width, previewCanvas.height);
+            
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 handState.handsDetected = results.multiHandLandmarks.length;
                 
-                // Use primary hand (right if available, otherwise first detected)
+                // Draw hand landmarks on preview
+                results.multiHandLandmarks.forEach(landmarks => {
+                    if (typeof drawConnectors !== 'undefined' && typeof HAND_CONNECTIONS !== 'undefined') {
+                        drawConnectors(previewCtx, landmarks, HAND_CONNECTIONS, {color: '#00d2ff', lineWidth: 2});
+                        drawLandmarks(previewCtx, landmarks, {color: '#00ff88', lineWidth: 1, radius: 3});
+                    }
+                });
+                
                 let primaryHand = results.multiHandLandmarks[0];
                 
-                // If two hands, prefer right hand
                 if (results.multiHandLandmarks.length === 2 && results.multiHandedness) {
                     const rightHandIndex = results.multiHandedness.findIndex(h => h.label === 'Right');
                     if (rightHandIndex !== -1) {
@@ -459,22 +475,20 @@
                 
                 const lm = primaryHand;
                 
-                // Position (direct mapping from palm center)
+                // Position - MIRRORED and EXAGGERATED (3x multiplier)
                 const palm = lm[9];
-                handState.targetPosX = (palm.x - 0.5) * 2;      // -1 to 1
-                handState.targetPosY = -(palm.y - 0.5) * 2;     // Invert Y (screen coords to world coords)
+                handState.targetPosX = -((palm.x - 0.5) * 2) * 3;  // Negated for mirror + 3x exaggeration
+                handState.targetPosY = -(palm.y - 0.5) * 2 * 3;    // 3x exaggeration
                 handState.targetPosZ = calculateHandDepth(lm);
                 
-                // Rotation
+                // Rotation - EXAGGERATED
                 const rotation = calculateHandRotation(lm);
-                handState.targetRotX = rotation.pitch;
-                handState.targetRotY = rotation.yaw;
-                handState.targetRotZ = rotation.roll;
+                handState.targetRotX = rotation.pitch * 1.5;
+                handState.targetRotY = -rotation.yaw * 1.5; // Negated for mirror
+                handState.targetRotZ = -rotation.roll * 1.5; // Negated for mirror
                 
-                // Grip
                 handState.grip = calculateGrip(lm);
                 
-                // Calibration
                 if (calibrationFrames < CALIBRATION_THRESHOLD) {
                     calibrationFrames++;
                     if (calibrationFrames === CALIBRATION_THRESHOLD) {
@@ -484,30 +498,30 @@
                 
             } else {
                 handState.handsDetected = 0;
-                // Decay to neutral
                 handState.targetPosX *= 0.95;
                 handState.targetPosY *= 0.95;
                 handState.targetPosZ *= 0.95;
                 handState.grip *= 0.9;
             }
             
+            previewCtx.restore();
+            
             // Update UI
             document.getElementById('hands-count').innerText = handState.handsDetected;
             document.getElementById('pos-x').innerText = handState.posX.toFixed(2);
             document.getElementById('pos-y').innerText = handState.posY.toFixed(2);
             document.getElementById('pos-z').innerText = handState.posZ.toFixed(2);
-            document.getElementById('rot-val').innerText = Math.round(handState.rotY * (180/Math.PI)) + '°';
             document.getElementById('ten-val').innerText = Math.round(handState.grip * 100) + '%';
             
             const statusEl = document.getElementById('hands-status');
             if (handState.handsDetected === 0) {
-                statusEl.innerText = '⚠️ No Hands Detected';
+                statusEl.innerText = '⚠️ No Hands';
                 statusEl.style.color = '#ff4757';
             } else if (handState.handsDetected === 1) {
-                statusEl.innerText = '👋 Single Hand Mode';
+                statusEl.innerText = '👋 Tracking';
                 statusEl.style.color = '#00d2ff';
             } else {
-                statusEl.innerText = '👐 Dual Hand Detected';
+                statusEl.innerText = '👐 Dual Hand';
                 statusEl.style.color = '#00ff88';
             }
         }

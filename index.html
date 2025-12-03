@@ -1,679 +1,847 @@
-import React, { useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
-import { Heart, Flower2, Globe, Sparkles, Camera, CameraOff, Zap } from 'lucide-react';
-
-const ParticleSystem = () => {
-  const containerRef = useRef(null);
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [template, setTemplate] = useState('saturn');
-  const [color, setColor] = useState('#ffd700');
-  const [handDistance, setHandDistance] = useState(1);
-  const [error, setError] = useState('');
-  const [fps, setFps] = useState(0);
-
-  // Three.js refs
-  const sceneRef = useRef(null);
-  const cameraRef = useRef(null);
-  const rendererRef = useRef(null);
-  const particlesRef = useRef(null);
-  const glowRef = useRef(null);
-  const animationRef = useRef(null);
-
-  // Hand tracking refs
-  const handsRef = useRef(null);
-  const streamRef = useRef(null);
-
-  // Enhanced particle templates with 3D volume
-  const getParticlePositions = (type, count = 3000) => {
-    const positions = [];
-    
-    switch(type) {
-      case 'heart':
-        // True 3D heart with volume
-        for (let i = 0; i < count; i++) {
-          const t = (i / count) * Math.PI * 2;
-          const u = Math.random();
-          const v = Math.random();
-          
-          // Parametric heart surface
-          const x = 16 * Math.pow(Math.sin(t), 3);
-          const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-          
-          // Add volume by creating layers
-          const scale = 0.3 + v * 0.7;
-          const depth = (Math.random() - 0.5) * 8 * scale;
-          
-          positions.push(
-            x * 0.12 * scale, 
-            y * 0.12 * scale, 
-            depth * 0.12
-          );
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S. Particle System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        break;
-        
-      case 'flower':
-        // 3D flower with petals and depth
-        for (let i = 0; i < count; i++) {
-          const petalCount = 8;
-          const theta = (i / count) * Math.PI * 2 * petalCount;
-          const r = Math.abs(Math.cos(petalCount * theta / 2)) * 2.5;
-          const layer = Math.floor(i / (count / 3));
-          const zOffset = (layer - 1) * 0.5;
-          
-          const x = r * Math.cos(theta);
-          const y = r * Math.sin(theta);
-          const z = zOffset + (Math.random() - 0.5) * 0.8;
-          
-          positions.push(x, y, z);
+
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            background: #000;
         }
-        break;
-        
-      case 'saturn':
-        // Detailed Saturn with atmosphere
-        for (let i = 0; i < count; i++) {
-          if (i < count * 0.5) {
-            // Sphere with banding
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos(2 * Math.random() - 1);
-            const r = 1.5 + (Math.random() - 0.5) * 0.3;
-            
-            const x = r * Math.sin(phi) * Math.cos(theta);
-            const y = r * Math.sin(phi) * Math.sin(theta);
-            const z = r * Math.cos(phi);
-            positions.push(x, y, z);
-          } else {
-            // Multi-layer rings
-            const theta = Math.random() * Math.PI * 2;
-            const ringLayer = Math.floor(Math.random() * 3);
-            const r = 2.2 + ringLayer * 0.4 + Math.random() * 0.3;
-            
-            const x = r * Math.cos(theta);
-            const y = (Math.random() - 0.5) * 0.15;
-            const z = r * Math.sin(theta);
-            positions.push(x, y, z);
-          }
+
+        #container {
+            position: absolute;
+            inset: 0;
         }
-        break;
-        
-      case 'buddha':
-        // Seated Buddha silhouette with aura
-        for (let i = 0; i < count; i++) {
-          const section = i / count;
-          
-          if (section < 0.3) {
-            // Head and halo
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.random() * Math.PI;
-            const r = 0.6 + Math.random() * 0.3;
-            const x = r * Math.sin(phi) * Math.cos(theta);
-            const y = r * Math.cos(phi) + 2.5;
-            const z = r * Math.sin(phi) * Math.sin(theta);
-            positions.push(x, y, z);
-          } else if (section < 0.6) {
-            // Torso
-            const theta = Math.random() * Math.PI * 2;
-            const h = Math.random() * 1.5;
-            const r = 0.8 - h * 0.2;
-            const x = r * Math.cos(theta);
-            const y = 1 + h;
-            const z = r * Math.sin(theta);
-            positions.push(x, y, z);
-          } else {
-            // Lotus base
-            const theta = Math.random() * Math.PI * 2;
-            const r = 1 + Math.random() * 0.5;
-            const x = r * Math.cos(theta);
-            const y = Math.random() * 0.5;
-            const z = r * Math.sin(theta);
-            positions.push(x, y, z);
-          }
+
+        .scanline {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 215, 0, 0.03) 2px, rgba(255, 215, 0, 0.03) 4px);
+            z-index: 100;
         }
-        break;
-        
-      case 'fireworks':
-        // Multiple explosion bursts
-        const burstCount = 5;
-        const particlesPerBurst = count / burstCount;
-        
-        for (let b = 0; b < burstCount; b++) {
-          const burstOffset = new THREE.Vector3(
-            (Math.random() - 0.5) * 4,
-            (Math.random() - 0.5) * 4,
-            (Math.random() - 0.5) * 4
-          );
-          
-          for (let i = 0; i < particlesPerBurst; i++) {
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.random() * Math.PI;
-            const r = Math.pow(Math.random(), 0.5) * 2;
-            
-            const x = r * Math.sin(phi) * Math.cos(theta) + burstOffset.x;
-            const y = r * Math.sin(phi) * Math.sin(theta) + burstOffset.y;
-            const z = r * Math.cos(phi) + burstOffset.z;
-            positions.push(x, y, z);
-          }
+
+        #video {
+            display: none;
         }
-        break;
-        
-      default:
-        for (let i = 0; i < count; i++) {
-          positions.push(
-            (Math.random() - 0.5) * 5,
-            (Math.random() - 0.5) * 5,
-            (Math.random() - 0.5) * 5
-          );
+
+        #canvas {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 192px;
+            height: 144px;
+            border: 2px solid #ffd700;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5), inset 0 0 20px rgba(255, 215, 0, 0.1);
+            display: none;
         }
-    }
-    
-    return new Float32Array(positions);
-  };
 
-  // Initialize Three.js scene with Iron Man theme
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    // Scene setup
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
-    scene.fog = new THREE.FogExp2(0x000000, 0.05);
-    sceneRef.current = scene;
-
-    // Camera
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 10;
-    cameraRef.current = camera;
-
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    containerRef.current.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
-
-    // Ambient lighting
-    const ambientLight = new THREE.AmbientLight(0x404040);
-    scene.add(ambientLight);
-
-    // Create glow effect (Arc Reactor style)
-    const glowGeometry = new THREE.SphereGeometry(3, 32, 32);
-    const glowMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        c: { value: 0.3 },
-        p: { value: 4.5 },
-        glowColor: { value: new THREE.Color(0xffd700) },
-      },
-      vertexShader: `
-        varying vec3 vNormal;
-        void main() {
-          vNormal = normalize(normalMatrix * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        .control-panel {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 2px solid #cc9900;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.3), inset 0 0 20px rgba(255, 215, 0, 0.05);
+            max-width: 320px;
         }
-      `,
-      fragmentShader: `
-        uniform vec3 glowColor;
-        uniform float c;
-        uniform float p;
-        varying vec3 vNormal;
-        void main() {
-          float intensity = pow(c - dot(vNormal, vec3(0, 0, 1.0)), p);
-          gl_FragColor = vec4(glowColor, 1.0) * intensity;
+
+        .header {
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #cc9900;
         }
-      `,
-      side: THREE.BackSide,
-      blending: THREE.AdditiveBlending,
-      transparent: true,
-    });
-    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-    scene.add(glowMesh);
-    glowRef.current = glowMesh;
 
-    // Enhanced particles
-    const geometry = new THREE.BufferGeometry();
-    const positions = getParticlePositions('saturn');
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    // Create custom particle material
-    const material = new THREE.PointsMaterial({
-      color: new THREE.Color(color),
-      size: 0.08,
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true,
-    });
-
-    const particles = new THREE.Points(geometry, material);
-    scene.add(particles);
-    particlesRef.current = particles;
-
-    // Add point lights for dramatic effect
-    const light1 = new THREE.PointLight(0xffd700, 1, 100);
-    light1.position.set(5, 5, 5);
-    scene.add(light1);
-
-    const light2 = new THREE.PointLight(0xff0000, 0.5, 100);
-    light2.position.set(-5, -5, 5);
-    scene.add(light2);
-
-    // Handle resize
-    const handleResize = () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    };
-    window.addEventListener('resize', handleResize);
-
-    // Animation loop with FPS counter
-    let lastTime = performance.now();
-    let frames = 0;
-    
-    const animate = () => {
-      animationRef.current = requestAnimationFrame(animate);
-      
-      const currentTime = performance.now();
-      frames++;
-      
-      if (currentTime >= lastTime + 1000) {
-        setFps(Math.round(frames * 1000 / (currentTime - lastTime)));
-        frames = 0;
-        lastTime = currentTime;
-      }
-      
-      if (particlesRef.current) {
-        particlesRef.current.rotation.y += 0.002;
-        particlesRef.current.rotation.x = Math.sin(currentTime * 0.0005) * 0.2;
-        particlesRef.current.scale.set(handDistance, handDistance, handDistance);
-      }
-      
-      if (glowRef.current) {
-        glowRef.current.scale.set(handDistance * 0.8, handDistance * 0.8, handDistance * 0.8);
-        glowRef.current.rotation.y += 0.001;
-      }
-      
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      renderer.dispose();
-      geometry.dispose();
-      material.dispose();
-      glowMaterial.dispose();
-      glowGeometry.dispose();
-    };
-  }, []);
-
-  // Update particles when template changes
-  useEffect(() => {
-    if (!particlesRef.current) return;
-
-    const positions = getParticlePositions(template);
-    particlesRef.current.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    particlesRef.current.geometry.attributes.position.needsUpdate = true;
-  }, [template]);
-
-  // Update color
-  useEffect(() => {
-    if (!particlesRef.current) return;
-    particlesRef.current.material.color = new THREE.Color(color);
-    
-    if (glowRef.current) {
-      glowRef.current.material.uniforms.glowColor.value = new THREE.Color(color);
-    }
-  }, [color]);
-
-  // Hand tracking with MediaPipe
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user', width: 640, height: 480 } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        streamRef.current = stream;
-        setCameraActive(true);
-        setError('');
-        
-        // Load MediaPipe Hands
-        if (!handsRef.current && window.Hands) {
-          const hands = new window.Hands({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-          });
-          
-          hands.setOptions({
-            maxNumHands: 2,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-          });
-          
-          hands.onResults(onHandResults);
-          handsRef.current = hands;
-          
-          // Process video frames
-          const processFrame = async () => {
-            if (videoRef.current && videoRef.current.readyState === 4) {
-              try {
-                await hands.send({ image: videoRef.current });
-              } catch (e) {
-                console.error('Hand processing error:', e);
-              }
-              if (cameraActive) {
-                requestAnimationFrame(processFrame);
-              }
-            } else if (cameraActive) {
-              requestAnimationFrame(processFrame);
-            }
-          };
-          videoRef.current.addEventListener('loadeddata', () => {
-            processFrame();
-          });
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ffd700;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
         }
-      }
-    } catch (err) {
-      setError('Camera access denied. Please enable camera permissions.');
-      console.error('Camera error:', err);
-    }
-  };
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setCameraActive(false);
-  };
+        .subtitle {
+            font-size: 10px;
+            color: #ccaa00;
+            margin-top: 4px;
+        }
 
-  const onHandResults = (results) => {
-    if (canvasRef.current && results.multiHandLandmarks) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw stylized overlay
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      if (results.multiHandLandmarks.length === 2) {
-        // Two hands detected
-        const hand1 = results.multiHandLandmarks[0];
-        const hand2 = results.multiHandLandmarks[1];
-        
-        const palm1 = hand1[9];
-        const palm2 = hand2[9];
-        
-        const distance = Math.sqrt(
-          Math.pow(palm1.x - palm2.x, 2) + 
-          Math.pow(palm1.y - palm2.y, 2)
-        );
-        
-        const scale = Math.max(0.3, Math.min(4.0, distance * 6));
-        setHandDistance(scale);
-        
-        // Draw connection line
-        ctx.strokeStyle = '#ffd700';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(palm1.x * canvas.width, palm1.y * canvas.height);
-        ctx.lineTo(palm2.x * canvas.width, palm2.y * canvas.height);
-        ctx.stroke();
-        
-        // Draw hands
-        results.multiHandLandmarks.forEach((landmarks, idx) => {
-          // Draw connections
-          ctx.strokeStyle = idx === 0 ? '#ffd700' : '#ff4444';
-          ctx.lineWidth = 2;
-          const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-          connections.forEach(([start, end]) => {
-            ctx.beginPath();
-            ctx.moveTo(landmarks[start].x * canvas.width, landmarks[start].y * canvas.height);
-            ctx.lineTo(landmarks[end].x * canvas.width, landmarks[end].y * canvas.height);
-            ctx.stroke();
-          });
-          
-          // Draw points
-          landmarks.forEach((landmark, i) => {
-            ctx.fillStyle = i === 0 || i === 9 ? '#ffffff' : (idx === 0 ? '#ffd700' : '#ff4444');
-            ctx.beginPath();
-            ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, i === 0 || i === 9 ? 6 : 4, 0, 2 * Math.PI);
-            ctx.fill();
-          });
-        });
-      } else if (results.multiHandLandmarks.length === 1) {
-        const hand = results.multiHandLandmarks[0];
-        const fingerTips = [4, 8, 12, 16, 20];
-        const fingerBases = [2, 5, 9, 13, 17];
-        
-        let openFingers = 0;
-        fingerTips.forEach((tip, i) => {
-          const tipPos = hand[tip];
-          const basePos = hand[fingerBases[i]];
-          const dist = Math.sqrt(Math.pow(tipPos.x - basePos.x, 2) + Math.pow(tipPos.y - basePos.y, 2));
-          if (dist > 0.1) openFingers++;
-        });
-        
-        const scale = 0.4 + (openFingers / 5) * 3;
-        setHandDistance(scale);
-        
-        // Draw connections
-        ctx.strokeStyle = '#ffd700';
-        ctx.lineWidth = 2;
-        const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-        connections.forEach(([start, end]) => {
-          ctx.beginPath();
-          ctx.moveTo(hand[start].x * canvas.width, hand[start].y * canvas.height);
-          ctx.lineTo(hand[end].x * canvas.width, hand[end].y * canvas.height);
-          ctx.stroke();
-        });
-        
-        // Draw points
-        hand.forEach((landmark, i) => {
-          ctx.fillStyle = fingerTips.includes(i) ? '#ffffff' : '#ffd700';
-          ctx.beginPath();
-          ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, fingerTips.includes(i) ? 6 : 4, 0, 2 * Math.PI);
-          ctx.fill();
-        });
-      }
-    }
-  };
+        .status {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            font-size: 12px;
+            color: #ffd700;
+        }
 
-  // Load MediaPipe script
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
-    script.crossOrigin = 'anonymous';
-    document.body.appendChild(script);
-    
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-    };
-  }, []);
+        .status span {
+            color: white;
+            font-family: monospace;
+        }
 
-  const templates = [
-    { id: 'heart', icon: Heart, label: 'Heart', color: '#ff0040' },
-    { id: 'flower', icon: Flower2, label: 'Flower', color: '#ff66ff' },
-    { id: 'saturn', icon: Globe, label: 'Saturn', color: '#ffd700' },
-    { id: 'buddha', icon: Sparkles, label: 'Buddha', color: '#ffaa00' },
-    { id: 'fireworks', icon: Zap, label: 'Fireworks', color: '#ff3333' }
-  ];
+        .btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            transition: all 0.3s;
+            border: 2px solid;
+            cursor: pointer;
+            font-size: 14px;
+        }
 
-  const quickColors = [
-    { name: 'Arc Gold', value: '#ffd700' },
-    { name: 'Iron Red', value: '#ff0000' },
-    { name: 'Repulsor Blue', value: '#00d4ff' },
-    { name: 'Hot Rod', value: '#ff4444' },
-    { name: 'Mark 85', value: '#cc0000' }
-  ];
+        .btn-primary {
+            background: #cc9900;
+            color: black;
+            border-color: #ffd700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
 
-  return (
-    <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Scanline effect */}
-      <div className="absolute inset-0 pointer-events-none" style={{
-        background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 215, 0, 0.03) 2px, rgba(255, 215, 0, 0.03) 4px)',
-        zIndex: 100
-      }} />
-      
-      {/* Three.js container */}
-      <div ref={containerRef} className="absolute inset-0" />
-      
-      {/* Hidden video */}
-      <video ref={videoRef} className="hidden" width="640" height="480" />
-      
-      {/* Hand tracking canvas - Arc Reactor styled */}
-      <canvas 
-        ref={canvasRef} 
-        className="absolute top-4 right-4 w-48 h-36 rounded-lg shadow-2xl"
-        width="640"
-        height="480"
-        style={{ 
-          display: cameraActive ? 'block' : 'none',
-          border: '2px solid #ffd700',
-          boxShadow: '0 0 20px rgba(255, 215, 0, 0.5), inset 0 0 20px rgba(255, 215, 0, 0.1)'
-        }}
-      />
-      
-      {/* HUD-style Control Panel */}
-      <div className="absolute top-4 left-4 bg-black bg-opacity-80 rounded-lg p-5 backdrop-blur-md border-2 border-yellow-600 shadow-2xl"
-        style={{
-          boxShadow: '0 0 30px rgba(255, 215, 0, 0.3), inset 0 0 20px rgba(255, 215, 0, 0.05)',
-          maxWidth: '320px'
-        }}>
-        {/* Header */}
-        <div className="mb-4 pb-3 border-b-2 border-yellow-600">
-          <h1 className="text-2xl font-bold text-yellow-400 tracking-wider" style={{ textShadow: '0 0 10px rgba(255, 215, 0, 0.5)' }}>
-            J.A.R.V.I.S.
-          </h1>
-          <p className="text-xs text-yellow-500 mt-1">Gesture Control Interface v3.0</p>
+        .btn-primary:hover {
+            background: #ffd700;
+        }
+
+        .btn-danger {
+            background: #660000;
+            color: white;
+            border-color: #cc0000;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+        }
+
+        .btn-danger:hover {
+            background: #990000;
+        }
+
+        .section {
+            margin-bottom: 16px;
+        }
+
+        .label {
+            display: block;
+            color: #ffd700;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+
+        .template-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .template-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: all 0.3s;
+            border: 2px solid;
+            cursor: pointer;
+            font-size: 12px;
+            background: #111;
+            color: #ffd700;
+            border-color: #333;
+        }
+
+        .template-btn:hover {
+            border-color: #cc9900;
+        }
+
+        .template-btn.active {
+            background: #cc9900;
+            color: black;
+            border-color: #ffd700;
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        .color-grid {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .color-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 4px;
+            border: 2px solid #333;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .color-btn:hover {
+            border-color: #ffd700;
+        }
+
+        .color-btn.active {
+            box-shadow: 0 0 15px currentColor;
+        }
+
+        .color-input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .color-picker {
+            width: 48px;
+            height: 40px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 2px solid #333;
+        }
+
+        .text-input {
+            flex: 1;
+            padding: 8px 12px;
+            background: #111;
+            color: #ffd700;
+            border-radius: 4px;
+            border: 2px solid #333;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .text-input:focus {
+            outline: none;
+            border-color: #cc9900;
+        }
+
+        .instructions {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            padding: 12px 24px;
+            backdrop-filter: blur(10px);
+            border: 2px solid #cc9900;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.3), inset 0 0 20px rgba(255, 215, 0, 0.05);
+        }
+
+        .instructions-text {
+            color: #ffd700;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .corner-accent {
+            position: absolute;
+            width: 128px;
+            height: 128px;
+            opacity: 0.3;
+        }
+
+        .corner-tl {
+            top: 0;
+            left: 0;
+            border-left: 4px solid #cc9900;
+            border-top: 4px solid #cc9900;
+        }
+
+        .corner-br {
+            bottom: 0;
+            right: 0;
+            border-right: 4px solid #cc9900;
+            border-bottom: 4px solid #cc9900;
+        }
+
+        .error {
+            color: #ff4444;
+            font-size: 10px;
+            margin-top: 8px;
+        }
+
+        .icon {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+        }
+    </style>
+</head>
+<body>
+    <div class="scanline"></div>
+    <div id="container"></div>
+    <video id="video" width="640" height="480"></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
+
+    <div class="control-panel">
+        <div class="header">
+            <div class="title">J.A.R.V.I.S.</div>
+            <div class="subtitle">Gesture Control Interface v3.0</div>
         </div>
-        
-        {/* System Status */}
-        <div className="mb-4 flex justify-between text-xs">
-          <span className="text-yellow-400">FPS: <span className="text-white font-mono">{fps}</span></span>
-          <span className="text-yellow-400">Scale: <span className="text-white font-mono">{handDistance.toFixed(2)}x</span></span>
+
+        <div class="status">
+            <div>FPS: <span id="fps">0</span></div>
+            <div>Scale: <span id="scale">1.00x</span></div>
         </div>
-        
-        {/* Camera Control */}
-        <div className="mb-4">
-          <button
-            onClick={cameraActive ? stopCamera : startCamera}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded font-bold transition-all border-2 ${
-              cameraActive 
-                ? 'bg-red-900 hover:bg-red-800 text-white border-red-600' 
-                : 'bg-yellow-600 hover:bg-yellow-500 text-black border-yellow-400'
-            }`}
-            style={{
-              boxShadow: cameraActive 
-                ? '0 0 15px rgba(255, 0, 0, 0.5)' 
-                : '0 0 15px rgba(255, 215, 0, 0.5)'
-            }}
-          >
-            {cameraActive ? <CameraOff size={20} /> : <Camera size={20} />}
-            {cameraActive ? 'DEACTIVATE' : 'ACTIVATE SCAN'}
-          </button>
-          {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
+
+        <div class="section">
+            <button id="cameraBtn" class="btn btn-primary">
+                <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                <span id="cameraBtnText">ACTIVATE SCAN</span>
+            </button>
+            <div id="error" class="error"></div>
         </div>
-        
-        {/* Template Selector */}
-        <div className="mb-4">
-          <label className="block text-yellow-400 text-sm font-bold mb-2 tracking-wide">
-            PARTICLE MATRIX
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {templates.map(({ id, icon: Icon, label, color: templateColor }) => (
-              <button
-                key={id}
-                onClick={() => {
-                  setTemplate(id);
-                  setColor(templateColor);
-                }}
-                className={`flex items-center justify-center gap-2 px-3 py-2 rounded font-semibold transition-all border-2 text-sm ${
-                  template === id
-                    ? 'bg-yellow-600 text-black border-yellow-400'
-                    : 'bg-gray-900 text-yellow-400 border-gray-700 hover:border-yellow-600'
-                }`}
-                style={{
-                  boxShadow: template === id ? '0 0 10px rgba(255, 215, 0, 0.5)' : 'none'
-                }}
-              >
-                <Icon size={16} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
+
+        <div class="section">
+            <label class="label">PARTICLE MATRIX</label>
+            <div class="template-grid" id="templateGrid"></div>
         </div>
-        
-        {/* Quick Colors */}
-        <div className="mb-4">
-          <label className="block text-yellow-400 text-sm font-bold mb-2 tracking-wide">
-            POWER CORE
-          </label>
-          <div className="flex gap-2 mb-2">
-            {quickColors.map((c) => (
-              <button
-                key={c.value}
-                onClick={() => setColor(c.value)}
-                className="w-10 h-10 rounded border-2 border-gray-700 hover:border-yellow-400 transition-all"
-                style={{
-                  backgroundColor: c.value,
-                  boxShadow: color === c.value ? `0 0 15px ${c.value}` : 'none'
-                }}
-                title={c.name}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="w-12 h-10 rounded cursor-pointer border-2 border-gray-700"
-            />
-            <input
-              type="text"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="flex-1 px-3 py-2 bg-gray-900 text-yellow-400 rounded border-2 border-gray-700 focus:outline-none focus:border-yellow-600 font-mono text-sm"
-            />
-          </div>
+
+        <div class="section">
+            <label class="label">POWER CORE</label>
+            <div class="color-grid" id="colorGrid"></div>
+            <div class="color-input-group">
+                <input type="color" id="colorPicker" class="color-picker" value="#ffd700">
+                <input type="text" id="colorInput" class="text-input" value="#ffd700">
+            </div>
         </div>
-      </div>
-      
-      {/* HUD Instructions */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-80 rounded-lg px-6 py-3 backdrop-blur-md border-2 border-yellow-600"
-        style={{
-          boxShadow: '0 0 30px rgba(255, 215, 0, 0.3), inset 0 0 20px rgba(255, 215, 0, 0.05)'
-        }}>
-        <p className="text-yellow-400 text-center text-sm font-semibold">
-          {cameraActive ? (
-            <>
-              <span className="text-yellow-300">TWO HANDS:</span> Spread apart/together |{' '}
-              <span className="text-yellow-300">ONE HAND:</span> Open/close fingers
-            </>
-          ) : (
-            'ACTIVATE SCAN TO ENABLE GESTURE CONTROL'
-          )}
-        </p>
-      </div>
-      
-      {/* Corner accent */}
-      <div className="absolute top-0 left-0 w-32 h-32 border-l-4 border-t-4 border-yellow-600 opacity-30" />
-      <div className="absolute bottom-0 right-0 w-32 h-32 border-r-4 border-b-4 border-yellow-600 opacity-30" />
     </div>
-  );
-};
 
-export default ParticleSystem;
+    <div class="instructions">
+        <p class="instructions-text" id="instructions">ACTIVATE SCAN TO ENABLE GESTURE CONTROL</p>
+    </div>
+
+    <div class="corner-accent corner-tl"></div>
+    <div class="corner-accent corner-br"></div>
+
+    <script>
+        // State
+        let cameraActive = false;
+        let currentTemplate = 'saturn';
+        let currentColor = '#ffd700';
+        let handDistance = 1;
+        let fps = 0;
+
+        // Three.js objects
+        let scene, camera, renderer, particles, glowMesh, animationId;
+        let hands, stream;
+
+        // DOM elements
+        const container = document.getElementById('container');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const cameraBtn = document.getElementById('cameraBtn');
+        const cameraBtnText = document.getElementById('cameraBtnText');
+        const errorEl = document.getElementById('error');
+        const fpsEl = document.getElementById('fps');
+        const scaleEl = document.getElementById('scale');
+        const templateGrid = document.getElementById('templateGrid');
+        const colorGrid = document.getElementById('colorGrid');
+        const colorPicker = document.getElementById('colorPicker');
+        const colorInput = document.getElementById('colorInput');
+        const instructions = document.getElementById('instructions');
+
+        // Templates
+        const templates = [
+            { id: 'heart', label: 'Heart', color: '#ff0040', icon: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z' },
+            { id: 'flower', label: 'Flower', color: '#ff66ff', icon: 'M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z M5.5 9.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z M18.5 9.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z' },
+            { id: 'saturn', label: 'Saturn', color: '#ffd700', icon: 'M21.21 15.89A10 10 0 1 1 8 2.83 M22 12A10 10 0 0 0 12 2v10z' },
+            { id: 'buddha', label: 'Buddha', color: '#ffaa00', icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
+            { id: 'fireworks', label: 'Fireworks', color: '#ff3333', icon: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' }
+        ];
+
+        const quickColors = [
+            { name: 'Arc Gold', value: '#ffd700' },
+            { name: 'Iron Red', value: '#ff0000' },
+            { name: 'Repulsor Blue', value: '#00d4ff' },
+            { name: 'Hot Rod', value: '#ff4444' },
+            { name: 'Mark 85', value: '#cc0000' }
+        ];
+
+        // Initialize templates
+        templates.forEach(t => {
+            const btn = document.createElement('button');
+            btn.className = 'template-btn';
+            if (t.id === currentTemplate) btn.classList.add('active');
+            btn.innerHTML = `
+                <svg class="icon" viewBox="0 0 24 24"><path d="${t.icon}"></path></svg>
+                <span>${t.label}</span>
+            `;
+            btn.onclick = () => selectTemplate(t.id, t.color);
+            templateGrid.appendChild(btn);
+        });
+
+        // Initialize colors
+        quickColors.forEach(c => {
+            const btn = document.createElement('button');
+            btn.className = 'color-btn';
+            if (c.value === currentColor) btn.classList.add('active');
+            btn.style.backgroundColor = c.value;
+            btn.title = c.name;
+            btn.onclick = () => setColor(c.value);
+            colorGrid.appendChild(btn);
+        });
+
+        // Get particle positions
+        function getParticlePositions(type, count = 3000) {
+            const positions = [];
+            
+            switch(type) {
+                case 'heart':
+                    for (let i = 0; i < count; i++) {
+                        const t = (i / count) * Math.PI * 2;
+                        const u = Math.random();
+                        const v = Math.random();
+                        
+                        const x = 16 * Math.pow(Math.sin(t), 3);
+                        const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                        
+                        const scale = 0.3 + v * 0.7;
+                        const depth = (Math.random() - 0.5) * 8 * scale;
+                        
+                        positions.push(x * 0.12 * scale, y * 0.12 * scale, depth * 0.12);
+                    }
+                    break;
+                    
+                case 'flower':
+                    for (let i = 0; i < count; i++) {
+                        const petalCount = 8;
+                        const theta = (i / count) * Math.PI * 2 * petalCount;
+                        const r = Math.abs(Math.cos(petalCount * theta / 2)) * 2.5;
+                        const layer = Math.floor(i / (count / 3));
+                        const zOffset = (layer - 1) * 0.5;
+                        
+                        const x = r * Math.cos(theta);
+                        const y = r * Math.sin(theta);
+                        const z = zOffset + (Math.random() - 0.5) * 0.8;
+                        
+                        positions.push(x, y, z);
+                    }
+                    break;
+                    
+                case 'saturn':
+                    for (let i = 0; i < count; i++) {
+                        if (i < count * 0.5) {
+                            const theta = Math.random() * Math.PI * 2;
+                            const phi = Math.acos(2 * Math.random() - 1);
+                            const r = 1.5 + (Math.random() - 0.5) * 0.3;
+                            
+                            const x = r * Math.sin(phi) * Math.cos(theta);
+                            const y = r * Math.sin(phi) * Math.sin(theta);
+                            const z = r * Math.cos(phi);
+                            positions.push(x, y, z);
+                        } else {
+                            const theta = Math.random() * Math.PI * 2;
+                            const ringLayer = Math.floor(Math.random() * 3);
+                            const r = 2.2 + ringLayer * 0.4 + Math.random() * 0.3;
+                            
+                            const x = r * Math.cos(theta);
+                            const y = (Math.random() - 0.5) * 0.15;
+                            const z = r * Math.sin(theta);
+                            positions.push(x, y, z);
+                        }
+                    }
+                    break;
+                    
+                case 'buddha':
+                    for (let i = 0; i < count; i++) {
+                        const section = i / count;
+                        
+                        if (section < 0.3) {
+                            const theta = Math.random() * Math.PI * 2;
+                            const phi = Math.random() * Math.PI;
+                            const r = 0.6 + Math.random() * 0.3;
+                            const x = r * Math.sin(phi) * Math.cos(theta);
+                            const y = r * Math.cos(phi) + 2.5;
+                            const z = r * Math.sin(phi) * Math.sin(theta);
+                            positions.push(x, y, z);
+                        } else if (section < 0.6) {
+                            const theta = Math.random() * Math.PI * 2;
+                            const h = Math.random() * 1.5;
+                            const r = 0.8 - h * 0.2;
+                            const x = r * Math.cos(theta);
+                            const y = 1 + h;
+                            const z = r * Math.sin(theta);
+                            positions.push(x, y, z);
+                        } else {
+                            const theta = Math.random() * Math.PI * 2;
+                            const r = 1 + Math.random() * 0.5;
+                            const x = r * Math.cos(theta);
+                            const y = Math.random() * 0.5;
+                            const z = r * Math.sin(theta);
+                            positions.push(x, y, z);
+                        }
+                    }
+                    break;
+                    
+                case 'fireworks':
+                    const burstCount = 5;
+                    const particlesPerBurst = count / burstCount;
+                    
+                    for (let b = 0; b < burstCount; b++) {
+                        const burstOffset = new THREE.Vector3(
+                            (Math.random() - 0.5) * 4,
+                            (Math.random() - 0.5) * 4,
+                            (Math.random() - 0.5) * 4
+                        );
+                        
+                        for (let i = 0; i < particlesPerBurst; i++) {
+                            const theta = Math.random() * Math.PI * 2;
+                            const phi = Math.random() * Math.PI;
+                            const r = Math.pow(Math.random(), 0.5) * 2;
+                            
+                            const x = r * Math.sin(phi) * Math.cos(theta) + burstOffset.x;
+                            const y = r * Math.sin(phi) * Math.sin(theta) + burstOffset.y;
+                            const z = r * Math.cos(phi) + burstOffset.z;
+                            positions.push(x, y, z);
+                        }
+                    }
+                    break;
+            }
+            
+            return new Float32Array(positions);
+        }
+
+        // Initialize Three.js
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            scene.fog = new THREE.FogExp2(0x000000, 0.05);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 10;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+
+            // Glow effect
+            const glowGeometry = new THREE.SphereGeometry(3, 32, 32);
+            const glowMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    c: { value: 0.3 },
+                    p: { value: 4.5 },
+                    glowColor: { value: new THREE.Color(currentColor) },
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 glowColor;
+                    uniform float c;
+                    uniform float p;
+                    varying vec3 vNormal;
+                    void main() {
+                        float intensity = pow(c - dot(vNormal, vec3(0, 0, 1.0)), p);
+                        gl_FragColor = vec4(glowColor, 1.0) * intensity;
+                    }
+                `,
+                side: THREE.BackSide,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+            });
+            glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+            scene.add(glowMesh);
+
+            // Particles
+            const geometry = new THREE.BufferGeometry();
+            const positions = getParticlePositions(currentTemplate);
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            const material = new THREE.PointsMaterial({
+                color: new THREE.Color(currentColor),
+                size: 0.08,
+                transparent: true,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                sizeAttenuation: true,
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            // Lights
+            const light1 = new THREE.PointLight(0xffd700, 1, 100);
+            light1.position.set(5, 5, 5);
+            scene.add(light1);
+
+            const light2 = new THREE.PointLight(0xff0000, 0.5, 100);
+            light2.position.set(-5, -5, 5);
+            scene.add(light2);
+
+            window.addEventListener('resize', onResize);
+            animate();
+        }
+
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+
+            const currentTime = performance.now();
+            
+            if (particles) {
+                particles.rotation.y += 0.002;
+                particles.rotation.x = Math.sin(currentTime * 0.0005) * 0.2;
+                particles.scale.set(handDistance, handDistance, handDistance);
+            }
+            
+            if (glowMesh) {
+                glowMesh.scale.set(handDistance * 0.8, handDistance * 0.8, handDistance * 0.8);
+                glowMesh.rotation.y += 0.001;
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        // FPS counter
+        let frames = 0;
+        let lastTime = performance.now();
+        setInterval(() => {
+            const currentTime = performance.now();
+            fps = Math.round(frames * 1000 / (currentTime - lastTime));
+            fpsEl.textContent = fps;
+            frames = 0;
+            lastTime = currentTime;
+        }, 1000);
+
+        setInterval(() => frames++, 16);
+
+        // Template selection
+        function selectTemplate(id, color) {
+            currentTemplate = id;
+            setColor(color);
+            
+            document.querySelectorAll('.template-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.closest('.template-btn').classList.add('active');
+            
+            if (particles) {
+                const positions = getParticlePositions(id);
+                particles.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                particles.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        // Color selection
+        function setColor(color) {
+            currentColor = color;
+            colorPicker.value = color;
+            colorInput.value = color;
+            
+            document.querySelectorAll('.color-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.style.backgroundColor === color || rgbToHex(btn.style.backgroundColor) === color) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            if (particles) {
+                particles.material.color = new THREE.Color(color);
+            }
+            if (glowMesh) {
+                glowMesh.material.uniforms.glowColor.value = new THREE.Color(color);
+            }
+        }
+
+        function rgbToHex(rgb) {
+            const result = rgb.match(/\d+/g);
+            if (!result) return rgb;
+            return '#' + result.map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
+        }
+
+        colorPicker.addEventListener('input', (e) => setColor(e.target.value));
+        colorInput.addEventListener('input', (e) => setColor(e.target.value));
+
+        // Camera control
+        cameraBtn.addEventListener('click', () => {
+            if (cameraActive) {
+                stopCamera();
+            } else {
+                startCamera();
+            }
+        });
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: 640, height: 480 } 
+                });
+                
+                video.srcObject = stream;
+                video.play();
+                cameraActive = true;
+                canvas.style.display = 'block';
+                cameraBtn.classList.remove('btn-primary');
+                cameraBtn.classList.add('btn-danger');
+                cameraBtnText.textContent = 'DEACTIVATE';
+                instructions.innerHTML = '<span style="color: #ffdd77">TWO HANDS:</span> Spread apart/together | <span style="color: #ffdd77">ONE HAND:</span> Open/close fingers';
+                errorEl.textContent = '';
+                
+                if (!hands && window.Hands) {
+                    hands = new window.Hands({
+                        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                    });
+                    
+                    hands.setOptions({
+                        maxNumHands: 2,
+                        modelComplexity: 1,
+                        minDetectionConfidence: 0.7,
+                        minTrackingConfidence: 0.7
+                    });
+                    
+                    hands.onResults(onHandResults);
+                    
+                    video.addEventListener('loadeddata', processFrame);
+                }
+            } catch (err) {
+                errorEl.textContent = 'Camera access denied. Please enable camera permissions.';
+                console.error('Camera error:', err);
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            video.srcObject = null;
+            cameraActive = false;
+            canvas.style.display = 'none';
+            cameraBtn.classList.remove('btn-danger');
+            cameraBtn.classList.add('btn-primary');
+            cameraBtnText.textContent = 'ACTIVATE SCAN';
+            instructions.textContent = 'ACTIVATE SCAN TO ENABLE GESTURE CONTROL';
+        }
+
+        async function processFrame() {
+            if (video.readyState === 4 && cameraActive) {
+                try {
+                    await hands.send({ image: video });
+                } catch (e) {
+                    console.error('Hand processing error:', e);
+                }
+                if (cameraActive) {
+                    requestAnimationFrame(processFrame);
+                }
+            } else if (cameraActive) {
+                requestAnimationFrame(processFrame);
+            }
+        }
+
+        function onHandResults(results) {
+            if (!results.multiHandLandmarks) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (results.multiHandLandmarks.length === 2) {
+                const hand1 = results.multiHandLandmarks[0];
+                const hand2 = results.multiHandLandmarks[1];
+                
+                const palm1 = hand1[9];
+                const palm2 = hand2[9];
+                
+                const distance = Math.sqrt(
+                    Math.pow(palm1.x - palm2.x, 2) + 
+                    Math.pow(palm1.y - palm2.y, 2)
+                );
+                
+                handDistance = Math.max(0.3, Math.min(4.0, distance * 6));
+                scaleEl.textContent = handDistance.toFixed(2) + 'x';
+                
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(palm1.x * canvas.width, palm1.y * canvas.height);
+                ctx.lineTo(palm2.x * canvas.width, palm2.y * canvas.height);
+                ctx.stroke();
+                
+                results.multiHandLandmarks.forEach((landmarks, idx) => {
+                    drawHand(landmarks, idx === 0 ? '#ffd700' : '#ff4444');
+                });
+            } else if (results.multiHandLandmarks.length === 1) {
+                const hand = results.multiHandLandmarks[0];
+                const fingerTips = [4, 8, 12, 16, 20];
+                const fingerBases = [2, 5, 9, 13, 17];
+                
+                let openFingers = 0;
+                fingerTips.forEach((tip, i) => {
+                    const tipPos = hand[tip];
+                    const basePos = hand[fingerBases[i]];
+                    const dist = Math.sqrt(Math.pow(tipPos.x - basePos.x, 2) + Math.pow(tipPos.y - basePos.y, 2));
+                    if (dist > 0.1) openFingers++;
+                });
+                
+                handDistance = 0.4 + (openFingers / 5) * 3;
+                scaleEl.textContent = handDistance.toFixed(2) + 'x';
+                
+                drawHand(hand, '#ffd700');
+            }
+        }
+
+        function drawHand(landmarks, color) {
+            const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+            
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            connections.forEach(([start, end]) => {
+                ctx.beginPath();
+                ctx.moveTo(landmarks[start].x * canvas.width, landmarks[start].y * canvas.height);
+                ctx.lineTo(landmarks[end].x * canvas.width, landmarks[end].y * canvas.height);
+                ctx.stroke();
+            });
+            
+            const fingerTips = [4, 8, 12, 16, 20];
+            landmarks.forEach((landmark, i) => {
+                ctx.fillStyle = fingerTips.includes(i) ? '#ffffff' : color;
+                ctx.beginPath();
+                ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, fingerTips.includes(i) ? 6 : 4, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
+
+        // Initialize
+        initThree();
+    </script>
+</body>
+</html>
